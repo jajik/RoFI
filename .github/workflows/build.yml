@@ -9,6 +9,7 @@ jobs:
     name: "Build suite desktop"
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         environment: [Debug, Release]
         image: [ghcr.io/paradise-fi/rofi.debian, ghcr.io/paradise-fi/rofi.ubuntu]
