@@ -7,7 +7,7 @@ on:
 jobs:
   build_desktop:
     name: "Build suite desktop"
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-latest
     strategy:
       matrix:
         environment: [Debug, Release]
@@ -31,7 +31,7 @@ jobs:
           rmake --test --all
   build_esp32:
     name: "Build suite esp32"
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-latest
     strategy:
       matrix:
         environment: [Debug, Release]
@@ -58,7 +58,7 @@ jobs:
           rmake esp32
   build_stm32:
     name: "Build suite stm32"
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-latest
     strategy:
       matrix:
         environment: [Debug, Release]
@@ -79,7 +79,7 @@ jobs:
           rmake stm32
   build_doc:
     name: "Build documentation"
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-latest
     container:
       image: ghcr.io/paradise-fi/rofi.doc
     defaults:
@@ -119,7 +119,7 @@ jobs:
           retention-days: 14
   deploy:
     name: "Deploy documentation"
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-latest
     needs: build_doc
     if: github.ref == 'refs/heads/master'
     steps:
