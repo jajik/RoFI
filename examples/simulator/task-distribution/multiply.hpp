@@ -60,4 +60,14 @@ public:
     {
         return 2;
     }
+
+    virtual FunctionCompletionType completionType() const override
+    {
+        return FunctionCompletionType::NonBlocking;
+    }
+
+    virtual FunctionDistributionType distributionType() const override
+    {
+        return FunctionDistributionType::Unicast;
+    }
 };

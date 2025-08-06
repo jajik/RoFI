@@ -1,5 +1,7 @@
 #pragma once
 #include "functionResult.hpp"
+#include "functionCompletionType.hpp"
+#include "functionDistributionType.hpp"
 #include <optional>
 
 template< typename Result, typename... Arguments >
@@ -30,4 +32,12 @@ public:
     /// @brief Returns unique function id.
     /// @return Unique function id.
     virtual int functionId() const = 0;
+
+    /// @brief Returns the completion type for the function, determining whether it is blocking after completion or not.
+    /// @return The completion type.
+    virtual FunctionCompletionType completionType() const = 0;
+
+    /// @brief Determines the way the function will be distributed to followers.
+    /// @return The distribution type.
+    virtual FunctionDistributionType distributionType() const = 0;
 };
