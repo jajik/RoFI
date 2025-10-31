@@ -8,71 +8,108 @@ struct FizzBuzzMetaData {
     int identity;
 };
 
+struct MemoryTrackingData
+{
+    int stamp;
+    int staleCount = 0;
+
+    MemoryTrackingData() : stamp( -1 ) {}
+    MemoryTrackingData( int stamp ) : stamp( stamp ) {}
+};
+
 class FizzBuzz : public DistributedFunction< FizzBuzzMetaData, int >
 {
-    const int _fizzBuzzTreshold = 20;
+    const int fizzbuzzLimit = 20;
+    int fizzBuzzOps = 0;
     int _identity;
+    std::map< int, MemoryTrackingData > _prevStamps;
     const int _memorySlotOneId = 2;
     const int _memorySlotTwoId = 3;
     DistributedTaskManager& _manager;
     std::map< int, int > _addressStampMap;
 
-    int getMemorySlotAddress( int value )
+    int getNextMemorySlotAddress( int value )
     {
-        return value % 2 == 0 ? _memorySlotOneId : _memorySlotTwoId;
+        return value == _memorySlotOneId ? _memorySlotTwoId : _memorySlotOneId;
     }
 
 public:
     FizzBuzz( int identity, DistributedTaskManager& manager )
     : _identity( identity ), _manager( manager )
-    {}
+    {
+        _prevStamps.emplace(_memorySlotOneId, MemoryTrackingData( -1 ) );
+        _prevStamps.emplace(_memorySlotTwoId, MemoryTrackingData( -1 ) );
+    }
 
     /// @brief The execute() function is performed by the follower node.
     /// @param value the argument, corresponding to < Arguments > of the template.
     /// @return A function result structure, which contains both the result value and whether the function is considered a success.
-    virtual FunctionResult< FizzBuzzMetaData > execute( int value ) override 
+    virtual FunctionResult< FizzBuzzMetaData > execute( int memoryAddress ) override 
     {
-        int memoryAddress = getMemorySlotAddress( value );
-        std::cout << "FizzBuzz Value " << value << " Memory Address: " << memoryAddress << std::endl;
+        std::cout << "FizzBuzz Memory Address: " << memoryAddress << std::endl;
         MemoryReadResult result = _manager.memoryService().readData( memoryAddress );
         int resultValue;
         if ( !result.success )
         {
             std::cout << "FizzBuzz value not in memory, generating..." << std::endl;
-            resultValue = _identity + ( value * _identity );
+            resultValue = _identity + ( memoryAddress * _identity );
         }
         else
         {
+            std::cout << "Value in memory slot " << memoryAddress << ": " << result.data< int >() << std::endl;
             resultValue = _identity + ( result.data< int >() * _identity );
         }
-        std::cout << "FizzBuzz Value " << resultValue << " will be stored to memory." << std::endl;
+        std::cout << "FizzBuzz Value " << resultValue << " will be stored to memory slot " << memoryAddress << std::endl;
         _manager.memoryService().saveData< int >( resultValue, memoryAddress );
 
-        auto metaData = FizzBuzzMetaData{ value + 1, _identity };
-        std::cout << "Returning metadata with value " << value + 1 << std::endl;
+        auto metaData = FizzBuzzMetaData{ memoryAddress, _identity };
         return FunctionResult< FizzBuzzMetaData >( metaData, FunctionResultType::SUCCESS );
     }
 
     /// This function is called by the leader node if the FunctionResult fom execute indicates a success.
     virtual bool onFunctionSuccess( std::optional< FizzBuzzMetaData > data, const Ip6Addr& origin ) override
     {
+        if ( fizzbuzzLimit <= fizzBuzzOps )
+        {
+            std::cout << "Example complete. Terminating pipeline." << std::endl;
+            auto terminateHandle = _manager.getFunctionHandle< bool >( 101 ).value();
+            terminateHandle( origin, 1, false, std::tuple<>() );
+            return false;
+        }
+        
         if ( !data.has_value() )
         {
             return false;
         }
 
-        std::cout << "Data Value: " << data.value().value << std::endl;
-        int memoryAddress = getMemorySlotAddress( data.value().value );
+        int memoryAddress = data.value().value;
+        std::cout << "FizzBuzz result notification received from " << data.value().identity << ", going to read from address " << memoryAddress << std::endl;
+        MemoryReadResult metadata = _manager.memoryService().readMetadata( memoryAddress, "stamp" );
+        if ( !metadata.success )
+        {
+            std::cout << "Failed to read metadata." << std::endl;
+            return true;
+        }
 
-        std::cout << "Memory Address: " << memoryAddress << std::endl;
+        auto& prevStamp = _prevStamps[ memoryAddress ];
+        if ( metadata.data< int >() <= prevStamp.stamp && prevStamp.staleCount < 4 )
+        {
+            prevStamp.staleCount++;
+            std::cout << "Stale data detected." << std::endl;
+            return true;
+        }
+
         MemoryReadResult readResult = _manager.memoryService().readData( memoryAddress );
         if ( !readResult.success )
         {
             return true;
         }
         
+        fizzBuzzOps++;
+        prevStamp.stamp = metadata.data< int >();
+        prevStamp.staleCount = 0;
         int result = readResult.data< int >();
-        std::cout << origin << ": " << result << " ";
+        std::cout << "[Result on " << origin << "]: " << result << " -> ";
         if ( result % 3 == 0 )
         {
             std::cout << "fizz";
@@ -84,22 +121,16 @@ public:
         }
         std::cout << std::endl;
 
-        if ( data.value().identity == 2 )
+        auto barrierHandle = _manager.getFunctionHandle< Ip6Addr >( 100 ).value();
+        if ( !barrierHandle( origin, 1, false, std::tuple<>()) )
         {
-            auto barrierHandle = _manager.getFunctionHandle< Ip6Addr >( 100 ).value();
-            if ( !barrierHandle( origin, 1, false, std::tuple<>()) )
-            {
-                std::cout << "Execution of function " << functionName() << " failed" << std::endl;
-            }
+            std::cout << "Execution of function " << functionName() << " failed." << std::endl;
         }
 
-        if ( data.value().value < _fizzBuzzTreshold )
+        auto fizzbuzzHandle = _manager.getFunctionHandle< FizzBuzzMetaData, int >( 1 ).value();
+        if ( !fizzbuzzHandle( origin, 1, false, std::tuple< int >( getNextMemorySlotAddress( data.value().value ) ) ) )
         {
-            auto fizzbuzzHandle = _manager.getFunctionHandle< FizzBuzzMetaData, int >( 1 ).value();
-            if ( !fizzbuzzHandle( origin, 1, false, std::tuple< int >( data.value().value + 1 ) ) )
-            {
-                std::cout << "Execution of function " << functionName() << "failed." << std::endl;
-            }
+            std::cout << "Execution of function " << functionName() << "failed." << std::endl;
         }
 
         return false;
